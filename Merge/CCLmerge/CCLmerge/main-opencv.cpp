@@ -4,6 +4,7 @@
  * @brief An exemplative main file for the use of ViBe and OpenCV
  */
 #include <iostream>
+#include <forward_list>
 
 //#include <opencv2/cv.h>
 //#include <opencv/highgui.h>
@@ -29,6 +30,8 @@ bool isRectangleOverlap(int x1, int y1, int w1, int h1, int x2, int y2, int w2, 
 bool isCenterClose(double Cenx, double Ceny, double Cenx_new, double Ceny_new);
 void Merge(cv::Mat &stats, cv::Mat &centroids, int i, int j);
 
+std::forward_list<DetectBox>& getMoveRects_list(int nccomps, cv::Mat stats, cv::Mat centroids);
+
 //----------------合并重叠框和中心邻近框---------------------
 #define  CENTER_DIST_THRESH 900.0
 typedef struct  DetectBox
@@ -38,7 +41,7 @@ typedef struct  DetectBox
 	cv::Point2f center_point;
 }DetectBox;
 
-std::vector<DetectBox> getMoveRects(int nccomps, cv::Mat stats, cv::Mat centroids);
+std::vector<DetectBox>& getMoveRects(int nccomps, cv::Mat stats, cv::Mat centroids);
 bool isOverlap(cv::Point2i tl1, cv::Point2i br1, cv::Point2i curTl, cv::Point2i curBR);
 std::vector<int> getAllOverlaps(std::vector<DetectBox>move_rects, DetectBox curRect, int index);
 bool isCenterClose(cv::Point2f center, cv::Point2f curCenter);
@@ -277,8 +280,9 @@ void processVideo(char* videoFilename)
 #else
 	DWORD start_time = GetTickCount();
 	// 使用链表实现合并
-
-
+	std::forward_list<DetectBox> move_rects = getMoveRects_list(nccomps, stats, centroids);
+	//	加速版的Merge
+	Merge_list(move_rects);
 
 	DWORD end_time = GetTickCount();
 	std::cout << "merge overlapping : " << (end_time - start_time) * 1.00 / 1000 << "s" << endl;
@@ -633,7 +637,7 @@ void Merge(cv::Mat &stats, cv::Mat &centroids, int i, int j)
 }
 
 /* int nccomps, cv::Mat stats, cv::Mat centroids */
-std::vector<DetectBox> getMoveRects(int nccomps, cv::Mat stats, cv::Mat centroids)
+std::vector<DetectBox>& getMoveRects(int nccomps, cv::Mat stats, cv::Mat centroids)
 {
 	std::vector<DetectBox> move_rects;
 	std::vector<cv::Point2f> center_points;
@@ -656,7 +660,34 @@ std::vector<DetectBox> getMoveRects(int nccomps, cv::Mat stats, cv::Mat centroid
 	}
 	return move_rects;
 }
-
+/* 使用链表实现 */
+std::forward_list<DetectBox>& getMoveRects_list(int nccomps, cv::Mat stats, cv::Mat centroids)
+{
+	// 连续尾插没有问题
+	std::forward_list<DetectBox> move_rects;
+	std::forward_list<DetectBox>::iterator it = move_rects.before_begin();
+	std::vector<cv::Point2f> center_points;
+	for (int id = 1; id < nccomps; id++, it++)
+	{
+		int xmin = stats.at<int>(id, 0);	// max_ID * 5 的矩阵
+		int ymin = stats.at<int>(id, 1);
+		int width = stats.at<int>(id, 2);
+		int height = stats.at<int>(id, 3);
+		int validNum = stats.at<int>(id, 4);
+		// 筛选部分：高度、宽度、面积、点数；长宽比等
+		DetectBox tmp;
+		tmp.rect = cv::Rect(xmin, ymin, width, height);
+		tmp.validNum = validNum;
+		// 对应的质心位置
+		float cenx = centroids.at<double>(id, 0);
+		float ceny = centroids.at<double>(id, 1);
+		tmp.center_point = cv::Point2f(cenx, ceny);
+		// 由于是后插，所以如果想要插入位置为第一个元素，
+		// 将无法仅利用begin()来完成，其需要借助before_begin()才能实现。
+		move_rects.emplace_after(it, tmp);
+	}
+	return move_rects;
+}
 bool isOverlap(cv::Point2i tl1, cv::Point2i br1, cv::Point2i curTl, cv::Point2i curBR)
 {
 	//[tl1.x, tl1.y, br1.x, br1.y] [curTl.x, curTl.y, curBR.x, curBR.y]
@@ -699,6 +730,67 @@ void Merge(std::vector<DetectBox> &move_rects)
 		while (index >= 0)
 		{
 			// 加入边界
+			DetectBox curRect = move_rects[index];
+			// 获取所有重叠框的ID
+			std::vector<int> overlaps = getAllOverlaps(move_rects, curRect, index);
+			if (overlaps.size() > 0)				// 有重叠就合并
+			{
+				overlaps.push_back(index);
+				std::vector<cv::Point2i> points;
+				points.clear();
+				float cenx = 0.0;
+				float ceny = 0.0;
+				int validNumSum = 0;
+				for (int i = 0; i < overlaps.size(); i++)
+				{
+					points.push_back(move_rects[overlaps[i]].rect.tl());
+					points.push_back(move_rects[overlaps[i]].rect.br());
+					// 计算合并后的中心
+					int num = move_rects[overlaps[i]].validNum;
+					cenx += move_rects[overlaps[i]].center_point.x * num;
+					ceny += move_rects[overlaps[i]].center_point.y * num;
+					validNumSum += num;
+				}
+				// 合并后的大框
+				cv::Rect mergeRect = cv::boundingRect(points);
+				cenx /= validNumSum;
+				ceny /= validNumSum;
+				DetectBox mergeNewRect;
+				mergeNewRect.rect = mergeRect;
+				mergeNewRect.center_point = cv::Point2f(cenx, ceny);
+				mergeNewRect.validNum = validNumSum;
+				// 删除合并前的所有小框：逆向排序，再删除，效率较高
+				std::sort(overlaps.begin(), overlaps.end(), cmp1);
+				// 获取迭代器的第一个值
+
+				for (int i = 0; i < overlaps.size(); i++)
+				{
+					vector<DetectBox>::iterator   iter = move_rects.begin() + overlaps[i];
+					move_rects.erase(iter);
+				}
+				move_rects.push_back(mergeNewRect);
+
+				finished = false;
+				break;
+			}
+			index -= 1;
+		}	// end of inner while
+	}	// end of outer while
+}
+
+/* 合并重叠框和近邻框 */
+void Merge_list(std::forward_list<DetectBox> &move_rects, const unsigned nccomps)
+{
+	bool finished = false;
+	unsigned list_size = nccomps;	// 初始链表大小
+	while (!finished)			// 是否还有重叠框
+	{
+		finished = true;
+		//std::cout << "size of rects:" << move_rects.size() << endl;
+		unsigned index = list_size;		// 动态维护的链表大小
+		while (index >= 0)
+		{
+			// 加入边界-------------------加入表头，然后每次从头遍历走！！有希望的！！！
 			DetectBox curRect = move_rects[index];
 			// 获取所有重叠框的ID
 			std::vector<int> overlaps = getAllOverlaps(move_rects, curRect, index);
