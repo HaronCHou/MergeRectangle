@@ -164,3 +164,5 @@ for box in boxes:
     cv2.rectangle(copy, tup(box[0]), tup(box[1]), (0, 200, 0), 1);
 cv2.imshow("Final", copy);
 cv2.waitKey(0);
+
+

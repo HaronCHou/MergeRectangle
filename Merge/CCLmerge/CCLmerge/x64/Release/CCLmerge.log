@@ -1,0 +1,28 @@
+﻿  LabelColor.cpp
+LabelColor.cpp(7): warning C4244: “初始化”: 从“double”转换到“uchar”，可能丢失数据
+LabelColor.cpp(8): warning C4244: “初始化”: 从“double”转换到“uchar”，可能丢失数据
+LabelColor.cpp(9): warning C4244: “初始化”: 从“double”转换到“uchar”，可能丢失数据
+LabelColor.cpp(45): warning C4244: “=”: 从“double”转换到“uchar”，可能丢失数据
+LabelColor.cpp(46): warning C4244: “=”: 从“double”转换到“uchar”，可能丢失数据
+LabelColor.cpp(47): warning C4244: “=”: 从“double”转换到“uchar”，可能丢失数据
+  main-opencv.cpp
+C:\Program Files (x86)\Windows Kits\8.1\Include\um\winuser.h(9067): warning C4005: “COLOR_BACKGROUND”: 宏重定义
+  g:\code_svm\git project\mergerectangle\merge\cclmerge\cclmerge\vibe-background-sequential.h(53): note: 参见“COLOR_BACKGROUND”的前一个定义
+main-opencv.cpp(507): warning C4267: “初始化”: 从“size_t”转换到“int”，可能丢失数据
+main-opencv.cpp(515): warning C4244: “初始化”: 从“double”转换到“const float”，可能丢失数据
+main-opencv.cpp(652): warning C4244: “初始化”: 从“double”转换到“float”，可能丢失数据
+main-opencv.cpp(653): warning C4244: “初始化”: 从“double”转换到“float”，可能丢失数据
+main-opencv.cpp(698): warning C4267: “初始化”: 从“size_t”转换到“int”，可能丢失数据
+  vibe-background-sequential.c
+vibe-background-sequential.c(281): warning C4018: “<”: 有符号/无符号不匹配
+vibe-background-sequential.c(340): warning C4018: “>”: 有符号/无符号不匹配
+vibe-background-sequential.c(349): warning C4018: “<=”: 有符号/无符号不匹配
+vibe-background-sequential.c(370): warning C4018: “<=”: 有符号/无符号不匹配
+vibe-background-sequential.c(452): warning C4018: “<”: 有符号/无符号不匹配
+vibe-background-sequential.c(620): warning C4018: “<”: 有符号/无符号不匹配
+vibe-background-sequential.c(625): warning C4018: “<”: 有符号/无符号不匹配
+vibe-background-sequential.c(806): warning C4018: “<”: 有符号/无符号不匹配
+  正在生成代码
+  All 285 functions were compiled because no usable IPDB/IOBJ from previous compilation was found.
+  已完成代码的生成
+  CCLmerge.vcxproj -> G:\code_svm\git project\MergeRectangle\Merge\CCLmerge\x64\Release\CCLmerge.exe
