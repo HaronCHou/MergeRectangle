@@ -19,6 +19,9 @@
 #include <windows.h>	// DWORD
 
 #define SHOW 1
+#define USE_VECTOR_MERGE 0
+#define USE_LIST_MERGE 0
+#define USE_ORGIN_MERGE 1
 
 using namespace cv;
 using namespace std;
@@ -267,7 +270,7 @@ void processVideo(char* videoFilename)
 				Merge(stats, centroids, i, j);
 		}
 	}
-#elif 0		// 用vector数据结构实现合并
+#elif USE_VECTOR_MERGE		// 用vector数据结构实现合并
 	DWORD start_time = GetTickCount();
 	std::vector<DetectBox> move_rects = getMoveRects(nccomps, stats, centroids);
 	//	加速版的Merge
@@ -276,9 +279,8 @@ void processVideo(char* videoFilename)
 
 	DWORD end_time = GetTickCount();
 	cout << "合并重叠框动态数组vector : " << (end_time - start_time) * 1.00 << "ms" << endl;
-#else
+#elif USE_LIST_MERGE // 使用链表实现合并
 	DWORD start_time = GetTickCount();
-	// 使用链表实现合并
 	std::forward_list<DetectBox> move_rects_list = getMoveRects_list(nccomps, stats, centroids);
 	//	加速版的Merge
 	unsigned list_size = nccomps;
@@ -296,10 +298,10 @@ void processVideo(char* videoFilename)
 	std::cout << "合并重叠框-链表forward_list实现 : " << (end_time - start_time) * 1.00 << "ms" << endl;
 #endif
 	// 画框：这里最终的出去的接口是vector，所以接口还要再统一一下
-	for (int i = 0; i < move_rects.size(); i++)
-	{
-		rectangle(frame_bgr, move_rects[i].rect, Scalar(0, 0, 255), 1);
-	}
+	//for (int i = 0; i < move_rects.size(); i++)
+	//{
+	//	rectangle(frame_bgr, move_rects[i].rect, Scalar(0, 0, 255), 1);
+	//}
 #if 0
 	for (int i = 1; i < stats.rows; i++)
 	{
@@ -317,7 +319,7 @@ void processVideo(char* videoFilename)
 	// 遍历rect数组，若存在重叠，近邻，就合并ID。rect的id就是ID，ID之间合并。
 #endif
 
-#if 0
+#if USE_ORGIN_MERGE
 	//-----------------------------------------------------------------
 	/* 连通区域聚类 */
 	cv::Mat1i labelImg;
@@ -333,18 +335,17 @@ void processVideo(char* videoFilename)
 	unsigned n_labels = sauf_ufpc.n_labels_;
 
 	DWORD end_time1 = GetTickCount();
-	std::cout << "SAUFPC:\t" << (end_time1 - start_time1) * 1.00 / 1000 << "s" << endl;
+	//std::cout << "SAUFPC:\t" << (end_time1 - start_time1) * 1.00 / 1000 << "s" << endl;
 
 	// 结果展示
 	cv::Mat colorLabelImg;
 	colorLabelImg.create(labelImg.rows, labelImg.cols, CV_8UC3);
 	icvprLabelColor(labelImg, colorLabelImg);
-	cv::imshow("彩色标记图", colorLabelImg);
+	//cv::imshow("彩色标记图", colorLabelImg);
 	//-------------画框逻辑------------//
 	std::vector<cv::Rect> move_rects;
 
 	//-----------------------------------------------------------------
-	/* 多目标跟踪模块：数据关联 +　Kalman Filtering */
 	double maxp = 0.0, minp = 0.0;
 	cv::minMaxIdx(labelImg, &minp, &maxp);
 	int maxID = (int)maxp;
@@ -423,12 +424,13 @@ void processVideo(char* videoFilename)
 		}
 		//free(rect);
 	}
-	std::cout << "start merge:" << move_rects.size() << endl;
+	std::cout << "合并前: " << move_rects.size() << " rects" << endl;
 	DWORD start_time2 = GetTickCount();
 	// 合并包围框
 	if (move_rects.size()>1) Merge(move_rects);
 	DWORD end_time2 = GetTickCount();
-	std::cout << "end merge:" << (end_time2 - start_time2) * 1.00 / 1000 << "s" << endl;;
+	std::cout << "合并后: " << move_rects.size() << " rects" << endl;
+	std::cout << "合并重叠框-原始实现: " << (end_time2 - start_time2) * 1.00 << "ms" << endl;;
 	// 画框
 	for (int i = 0; i < move_rects.size(); i++)
 	{
