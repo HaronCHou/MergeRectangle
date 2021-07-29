@@ -18,7 +18,7 @@
 #include <math.h>
 #include <windows.h>	// DWORD
 
-#define SHOW 0
+#define SHOW 1
 
 using namespace cv;
 using namespace std;
@@ -30,8 +30,6 @@ bool isRectangleOverlap(int x1, int y1, int w1, int h1, int x2, int y2, int w2, 
 bool isCenterClose(double Cenx, double Ceny, double Cenx_new, double Ceny_new);
 void Merge(cv::Mat &stats, cv::Mat &centroids, int i, int j);
 
-std::forward_list<DetectBox>& getMoveRects_list(int nccomps, cv::Mat stats, cv::Mat centroids);
-
 //----------------合并重叠框和中心邻近框---------------------
 #define  CENTER_DIST_THRESH 900.0
 typedef struct  DetectBox
@@ -41,11 +39,19 @@ typedef struct  DetectBox
 	cv::Point2f center_point;
 }DetectBox;
 
-std::vector<DetectBox>& getMoveRects(int nccomps, cv::Mat stats, cv::Mat centroids);
+std::vector<DetectBox> getMoveRects(int nccomps, cv::Mat stats, cv::Mat centroids);
 bool isOverlap(cv::Point2i tl1, cv::Point2i br1, cv::Point2i curTl, cv::Point2i curBR);
 std::vector<int> getAllOverlaps(std::vector<DetectBox>move_rects, DetectBox curRect, int index);
 bool isCenterClose(cv::Point2f center, cv::Point2f curCenter);
 void Merge(std::vector<DetectBox> &move_rects);
+
+//------------------------链表实现--------------------------
+std::forward_list<DetectBox> getMoveRects_list(int nccomps, cv::Mat stats, cv::Mat centroids);
+std::vector<std::forward_list<DetectBox>::iterator> getAllOverlaps_list(std::forward_list<DetectBox>move_rects
+	, DetectBox curRect, std::forward_list<DetectBox>::iterator it);
+void Merge_list(std::forward_list<DetectBox> &move_rects, unsigned &list_size);
+void Statistic(std::vector<cv::Point2i> &points, float &cenx, float &ceny, int &validNumSum
+	, std::forward_list<DetectBox>::iterator curr);
 
 // 用于逆排序
 int cmp1(int a, int b)
@@ -80,12 +86,12 @@ int main(int argc, char* argv[])
   /* Print help information. */
   help();
 
-  /* Check for the input parameter correctness. */
-  if (argc != 2) {
-    cerr <<"Incorrect input" << endl;
-    cerr <<"exiting..." << endl;
-    return EXIT_FAILURE;
-  }
+  ///* Check for the input parameter correctness. */
+  //if (argc != 2) {
+  //  cerr <<"Incorrect input" << endl;
+  //  cerr <<"exiting..." << endl;
+  //  return EXIT_FAILURE;
+  //}
 
   /* Create GUI windows. */
   //namedWindow("Frame");
@@ -261,7 +267,6 @@ void processVideo(char* videoFilename)
 				Merge(stats, centroids, i, j);
 		}
 	}
-
 #elif 0		// 用vector数据结构实现合并
 	DWORD start_time = GetTickCount();
 	std::vector<DetectBox> move_rects = getMoveRects(nccomps, stats, centroids);
@@ -270,23 +275,31 @@ void processVideo(char* videoFilename)
 	// if (move_rects.size()>1) Merge(move_rects);
 
 	DWORD end_time = GetTickCount();
-	cout << "merge overlapping : " << (end_time - start_time) * 1.00 / 1000 << "s" << endl;
-
-	// 画框
+	cout << "合并重叠框动态数组vector : " << (end_time - start_time) * 1.00 << "ms" << endl;
+#else
+	DWORD start_time = GetTickCount();
+	// 使用链表实现合并
+	std::forward_list<DetectBox> move_rects_list = getMoveRects_list(nccomps, stats, centroids);
+	//	加速版的Merge
+	unsigned list_size = nccomps;
+	Merge_list(move_rects_list, list_size);
+	// 输出接口为vector，统一一下
+	std::vector<DetectBox> move_rects;
+	//std::forward_list<DetectBox>::iterator it;
+	//for (it = move_rects_list.begin(); it != move_rects_list.end(); it++)
+	//{
+	//	move_rects.push_back(*it);
+	//}
+	for(auto &it : move_rects_list)
+		move_rects.push_back(it);
+	DWORD end_time = GetTickCount();
+	std::cout << "合并重叠框-链表forward_list实现 : " << (end_time - start_time) * 1.00 << "ms" << endl;
+#endif
+	// 画框：这里最终的出去的接口是vector，所以接口还要再统一一下
 	for (int i = 0; i < move_rects.size(); i++)
 	{
 		rectangle(frame_bgr, move_rects[i].rect, Scalar(0, 0, 255), 1);
 	}
-#else
-	DWORD start_time = GetTickCount();
-	// 使用链表实现合并
-	std::forward_list<DetectBox> move_rects = getMoveRects_list(nccomps, stats, centroids);
-	//	加速版的Merge
-	Merge_list(move_rects);
-
-	DWORD end_time = GetTickCount();
-	std::cout << "merge overlapping : " << (end_time - start_time) * 1.00 / 1000 << "s" << endl;
-#endif
 #if 0
 	for (int i = 1; i < stats.rows; i++)
 	{
@@ -508,10 +521,10 @@ void Merge(std::vector<cv::Rect>& rects)
 }
 bool intetsect(std::vector<cv::Rect>& rects, int&s, int&t)
 {
-	int num = rects.size();
-	for (int i = 0; i < num; ++i)
+	unsigned num = rects.size();
+	for (unsigned i = 0; i < num; ++i)
 	{
-		for (int j = i + 1; j < num; ++j)
+		for (unsigned j = i + 1; j < num; ++j)
 		{
 			const cv::Rect& a = rects[i];
 			const cv::Rect& b = rects[j];
@@ -637,7 +650,7 @@ void Merge(cv::Mat &stats, cv::Mat &centroids, int i, int j)
 }
 
 /* int nccomps, cv::Mat stats, cv::Mat centroids */
-std::vector<DetectBox>& getMoveRects(int nccomps, cv::Mat stats, cv::Mat centroids)
+std::vector<DetectBox> getMoveRects(int nccomps, cv::Mat stats, cv::Mat centroids)
 {
 	std::vector<DetectBox> move_rects;
 	std::vector<cv::Point2f> center_points;
@@ -661,11 +674,12 @@ std::vector<DetectBox>& getMoveRects(int nccomps, cv::Mat stats, cv::Mat centroi
 	return move_rects;
 }
 /* 使用链表实现 */
-std::forward_list<DetectBox>& getMoveRects_list(int nccomps, cv::Mat stats, cv::Mat centroids)
+std::forward_list<DetectBox> getMoveRects_list(int nccomps, cv::Mat stats, cv::Mat centroids)
 {
 	// 连续尾插没有问题
 	std::forward_list<DetectBox> move_rects;
-	std::forward_list<DetectBox>::iterator it = move_rects.before_begin();
+	// 已经初始化了没问题
+	auto it = move_rects.before_begin();
 	std::vector<cv::Point2f> center_points;
 	for (int id = 1; id < nccomps; id++, it++)
 	{
@@ -718,14 +732,33 @@ std::vector<int> getAllOverlaps(std::vector<DetectBox>move_rects, DetectBox curR
 	}
 	return overlaps_ID;
 }
+std::vector<std::forward_list<DetectBox>::iterator> getAllOverlaps_list(std::forward_list<DetectBox>move_rects
+	, DetectBox curRect, std::forward_list<DetectBox>::iterator it)
+{
+	std::vector<std::forward_list<DetectBox>::iterator> overlaps_ID;
+	overlaps_ID.clear();
+	// 顺序遍历链表
+	for (std::forward_list<DetectBox>::iterator iter = move_rects.before_begin()
+		; iter != move_rects.end(); iter++)
+	{
+		if (iter != it)		// 除去当前框
+		{
+			if (isOverlap(iter->rect.tl(), iter->rect.br(), curRect.rect.tl(), curRect.rect.br()))
+				overlaps_ID.push_back(iter);
+			else if (isCenterClose(iter->center_point, curRect.center_point))
+				overlaps_ID.push_back(iter);
+		}
+	}
+	return overlaps_ID;
+}
 /* 合并重叠框和近邻框 */
 void Merge(std::vector<DetectBox> &move_rects)
 {
 	bool finished = false;
+	std::cout << "合并前: " << move_rects.size() << " rects" << endl;
 	while (!finished)			// 是否还有重叠框
 	{
 		finished = true;
-		//std::cout << "size of rects:" << move_rects.size() << endl;
 		int index = move_rects.size() - 1;
 		while (index >= 0)
 		{
@@ -776,42 +809,68 @@ void Merge(std::vector<DetectBox> &move_rects)
 			index -= 1;
 		}	// end of inner while
 	}	// end of outer while
+	std::cout << "合并后: " << move_rects.size() << " rects" << endl;
 }
 
 /* 合并重叠框和近邻框 */
-void Merge_list(std::forward_list<DetectBox> &move_rects, const unsigned nccomps)
+void Merge_list(std::forward_list<DetectBox> &move_rects, unsigned &list_size)
 {
 	bool finished = false;
-	unsigned list_size = nccomps;	// 初始链表大小
-	while (!finished)			// 是否还有重叠框
+	// 初始化就可以了，但是此处要保存迭代器指针，没有办法，不能使用auto
+	std::cout << "合并前: " << list_size << " rects" << endl;
+	while (!finished)							// 是否还有重叠框
 	{
 		finished = true;
-		//std::cout << "size of rects:" << move_rects.size() << endl;
-		unsigned index = list_size;		// 动态维护的链表大小
-		while (index >= 0)
+
+		auto prev_outer = move_rects.before_begin();
+
+		// 第一次都从头开始
+		bool has_overlap = false;
+		for (auto it = move_rects.begin(); it != move_rects.end(); prev_outer=it, it++)			// 头插就可以了
 		{
 			// 加入边界-------------------加入表头，然后每次从头遍历走！！有希望的！！！
-			DetectBox curRect = move_rects[index];
+			DetectBox curRect = *it;
+			std::vector<cv::Point2i> points;
+			points.clear();
+			float cenx = 0.0;
+			float ceny = 0.0;
+			int validNumSum = 0;
+			Statistic(points, cenx, ceny, validNumSum, it);
 			// 获取所有重叠框的ID
-			std::vector<int> overlaps = getAllOverlaps(move_rects, curRect, index);
-			if (overlaps.size() > 0)				// 有重叠就合并
+			//std::vector<std::forward_list<DetectBox>::iterator> overlaps;
+			//auto overlaps = getAllOverlaps_list(move_rects, curRect, it);
+			// 第一次遍历链表并删除重叠，删除要好好学习一下
+				// 边找重叠框，找到就删，同时记录统计信息，为后面add做准备
+			auto prev = move_rects.before_begin();
+			auto curr = move_rects.begin();
+
+			while(curr != move_rects.end())
 			{
-				overlaps.push_back(index);
-				std::vector<cv::Point2i> points;
-				points.clear();
-				float cenx = 0.0;
-				float ceny = 0.0;
-				int validNumSum = 0;
-				for (int i = 0; i < overlaps.size(); i++)
+				if (curr != it)		// 除去当前框 
 				{
-					points.push_back(move_rects[overlaps[i]].rect.tl());
-					points.push_back(move_rects[overlaps[i]].rect.br());
-					// 计算合并后的中心
-					int num = move_rects[overlaps[i]].validNum;
-					cenx += move_rects[overlaps[i]].center_point.x * num;
-					ceny += move_rects[overlaps[i]].center_point.y * num;
-					validNumSum += num;
+					if (isOverlap(curr->rect.tl(), curr->rect.br(), curRect.rect.tl(), curRect.rect.br())
+						|| isCenterClose(curr->center_point, curRect.center_point) )
+					{
+						has_overlap = true;
+						Statistic(points, cenx, ceny, validNumSum, curr);
+						// 删除这个框
+						curr = move_rects.erase_after(prev);
+						list_size--;
+					}
+					else// 继续遍历，迭代器+1
+					{
+						prev = curr;
+						curr++;
+					}
 				}
+				else// 继续遍历，迭代器+1
+				{
+					prev = curr;
+					curr++;
+				}		
+			}	// end of inner while 当前框的重叠框寻找完毕
+			if (has_overlap)
+			{
 				// 合并后的大框
 				cv::Rect mergeRect = cv::boundingRect(points);
 				cenx /= validNumSum;
@@ -820,21 +879,26 @@ void Merge_list(std::forward_list<DetectBox> &move_rects, const unsigned nccomps
 				mergeNewRect.rect = mergeRect;
 				mergeNewRect.center_point = cv::Point2f(cenx, ceny);
 				mergeNewRect.validNum = validNumSum;
-				// 删除合并前的所有小框：逆向排序，再删除，效率较高
-				std::sort(overlaps.begin(), overlaps.end(), cmp1);
-				// 获取迭代器的第一个值
-
-				for (int i = 0; i < overlaps.size(); i++)
-				{
-					vector<DetectBox>::iterator   iter = move_rects.begin() + overlaps[i];
-					move_rects.erase(iter);
-				}
-				move_rects.push_back(mergeNewRect);
-
+				// 头插：emplace_front()头部插入新节点。
+				move_rects.erase_after(prev_outer);			// 这行代码漏掉导致的死循环！！！
+				move_rects.emplace_front(mergeNewRect);
 				finished = false;
-				break;
+				break;		// 合并了就重新从头开始
 			}
-			index -= 1;
-		}	// end of inner while
+		}	// end of out for 遍历下一个参考框
 	}	// end of outer while
+	std::cout << "合并后: " << list_size << " rects" << endl;
+}  
+// 另外需要分解merge()到底占了多少时间，占总时间的多少？逻辑捋清楚！      
+void Statistic(std::vector<cv::Point2i> &points, float &cenx, float &ceny, int &validNumSum
+	,  std::forward_list<DetectBox>::iterator curr)
+{
+	// 统计合并信息
+	points.push_back(curr->rect.tl());
+	points.push_back(curr->rect.br());
+	// 计算合并后的中心
+	int num = curr->validNum;
+	cenx += curr->center_point.x * num;
+	ceny += curr->center_point.y * num;
+	validNumSum += num;
 }
