@@ -19,9 +19,9 @@
 #include <windows.h>	// DWORD
 
 #define SHOW 1
-#define USE_VECTOR_MERGE 0
+#define USE_VECTOR_MERGE 1
 #define USE_LIST_MERGE 0
-#define USE_ORGIN_MERGE 1
+#define USE_ORGIN_MERGE 0
 
 using namespace cv;
 using namespace std;
@@ -32,7 +32,7 @@ double intetsect(const cv::Rect& a, const cv::Rect& b);
 bool isRectangleOverlap(int x1, int y1, int w1, int h1, int x2, int y2, int w2, int h2);
 bool isCenterClose(double Cenx, double Ceny, double Cenx_new, double Ceny_new);
 void Merge(cv::Mat &stats, cv::Mat &centroids, int i, int j);
-
+std::vector<cv::Rect> getMoveRects_Rect(int nccomps, cv::Mat stats, cv::Mat centroids);
 //----------------合并重叠框和中心邻近框---------------------
 #define  CENTER_DIST_THRESH 900.0
 typedef struct  DetectBox
@@ -319,7 +319,7 @@ void processVideo(char* videoFilename)
 	// 遍历rect数组，若存在重叠，近邻，就合并ID。rect的id就是ID，ID之间合并。
 #endif
 
-#if USE_ORGIN_MERGE
+#if 0
 	//-----------------------------------------------------------------
 	/* 连通区域聚类 */
 	cv::Mat1i labelImg;
@@ -437,6 +437,18 @@ void processVideo(char* videoFilename)
 		rectangle(frame_bgr, move_rects[i], Scalar(0, 0, 255), 1);
 	}
 #endif
+#if USE_ORGIN_MERGE
+	std::vector<cv::Rect> move_rects;
+	move_rects = getMoveRects_Rect(nccomps, stats, centroids);
+	std::cout << "合并前: " << move_rects.size() << " rects" << endl;
+	DWORD start_time2 = GetTickCount();
+	// 合并包围框
+	if (move_rects.size()>1) Merge(move_rects);
+	DWORD end_time2 = GetTickCount();
+	std::cout << "合并后: " << move_rects.size() << " rects" << endl;
+	std::cout << "合并重叠框-原始实现: " << (end_time2 - start_time2) * 1.00 << "ms" << endl;
+#endif
+
 #if SHOW
 	cv::imshow("Frame", frame_bgr);
 	cv::waitKey(1000);
@@ -675,6 +687,24 @@ std::vector<DetectBox> getMoveRects(int nccomps, cv::Mat stats, cv::Mat centroid
 	}
 	return move_rects;
 }
+std::vector<cv::Rect> getMoveRects_Rect(int nccomps, cv::Mat stats, cv::Mat centroids)
+{
+	std::vector<cv::Rect> move_rects;
+	std::vector<cv::Point2f> center_points;
+	for (int id = 1; id < nccomps; id++)
+	{
+		int xmin = stats.at<int>(id, 0);	// max_ID * 5 的矩阵
+		int ymin = stats.at<int>(id, 1);
+		int width = stats.at<int>(id, 2);
+		int height = stats.at<int>(id, 3);
+		int validNum = stats.at<int>(id, 4);
+		// 筛选部分：高度、宽度、面积、点数；长宽比等
+		cv::Rect tmp;
+		tmp = cv::Rect(xmin, ymin, width, height);
+		move_rects.push_back(tmp);
+	}
+	return move_rects;
+}
 /* 使用链表实现 */
 std::forward_list<DetectBox> getMoveRects_list(int nccomps, cv::Mat stats, cv::Mat centroids)
 {
@@ -722,9 +752,10 @@ std::vector<int> getAllOverlaps(std::vector<DetectBox>move_rects, DetectBox curR
 	std::vector<int> overlaps_ID;
 	overlaps_ID.clear();
 	// 从move_rects中找到所有与tl br的rect重叠的框，并返回索引
-	for (int i = 0; i < move_rects.size(); i++)
+	//for (int i = 0; i < move_rects.size(); i++)
+	for (int i = 0; i < index; i++)
 	{
-		if (i != index)
+		//if (i != index)
 		{
 			if (isOverlap(move_rects[i].rect.tl(), move_rects[i].rect.br(), curRect.rect.tl(), curRect.rect.br()))
 				overlaps_ID.push_back(i);
